@@ -1,0 +1,56 @@
+{
+  "id": "mcpchangelog001",
+  "name": "mcp-change-log",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mcp-change-log",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "mcp-change-log"
+    },
+    {
+      "parameters": {
+        "jsCode": "const i = ($input.first().json.body) || $input.first().json || {};\nconst server = i.server || 'unknown';\nconst change = i.change || i.detail || 'change';\nreturn [{ json: { body: `MCP change [${server}]: ${change}`, title: `MCP change: ${server}`, kind: 'reference', scope: 'infra', source: 'mcp-change-log', tags: { area: 'mcp', server } } }];"
+      },
+      "id": "a1000000-0000-0000-0000-000000000002",
+      "name": "Build",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://10.10.0.2:8848/ingest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000003",
+      "name": "Ingest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "credentials": {
+        "httpHeaderAuth": { "id": "MemGwBearer00001", "name": "Memory Gateway Bearer" }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Build", "type": "main", "index": 0 }]] },
+    "Build": { "main": [[{ "node": "Ingest", "type": "main", "index": 0 }]] }
+  },
+  "settings": {},
+  "active": false
+}

@@ -1,0 +1,56 @@
+{
+  "id": "decisiontoadr01",
+  "name": "decision-to-adr",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "decision-to-adr",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "b2000000-0000-0000-0000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "decision-to-adr"
+    },
+    {
+      "parameters": {
+        "jsCode": "const i = ($input.first().json.body) || $input.first().json || {};\nconst t = i.title || 'Untitled decision';\nconst status = i.status || 'accepted';\nconst ctx = i.context || '';\nconst dec = i.decision || '';\nconst cons = i.consequences || '';\nconst body = `# ADR: ${t}\\n\\nStatus: ${status}\\n\\n## Context\\n${ctx}\\n\\n## Decision\\n${dec}\\n\\n## Consequences\\n${cons}`;\nreturn [{ json: { body, title: `ADR: ${t}`, kind: 'decision', scope: 'infra', source: 'decision-to-adr', tags: { area: 'adr', status } } }];"
+      },
+      "id": "b2000000-0000-0000-0000-000000000002",
+      "name": "Format ADR",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://10.10.0.2:8848/ingest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "b2000000-0000-0000-0000-000000000003",
+      "name": "Ingest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "credentials": {
+        "httpHeaderAuth": { "id": "MemGwBearer00001", "name": "Memory Gateway Bearer" }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Format ADR", "type": "main", "index": 0 }]] },
+    "Format ADR": { "main": [[{ "node": "Ingest", "type": "main", "index": 0 }]] }
+  },
+  "settings": {},
+  "active": false
+}

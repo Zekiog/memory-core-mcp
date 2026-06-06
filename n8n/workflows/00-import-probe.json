@@ -1,0 +1,38 @@
+{
+  "name": "zz-import-probe",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "11111111-0000-0000-0000-000000000001",
+      "name": "Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://10.10.0.2:8848/ingest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"body\":\"n8n import probe write via gateway /ingest\",\"title\":\"n8n import probe\",\"kind\":\"capture\",\"source\":\"n8n-import-probe\",\"tags\":{\"probe\":true}}",
+        "options": {}
+      },
+      "id": "11111111-0000-0000-0000-000000000002",
+      "name": "Ingest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "httpHeaderAuth": { "id": "MemGwBearer00001", "name": "Memory Gateway Bearer" }
+      }
+    }
+  ],
+  "connections": {
+    "Manual": { "main": [[{ "node": "Ingest", "type": "main", "index": 0 }]] }
+  },
+  "settings": {},
+  "active": false
+}

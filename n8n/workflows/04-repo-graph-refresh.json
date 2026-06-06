@@ -1,0 +1,77 @@
+{
+  "id": "repographrefr01",
+  "name": "repo-graph-refresh",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "days", "daysInterval": 1, "triggerAtHour": 5, "triggerAtMinute": 0 }
+          ]
+        }
+      },
+      "id": "d4000000-0000-0000-0000-000000000001",
+      "name": "Daily",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://10.10.0.2:8848/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"limit\":50}",
+        "options": {}
+      },
+      "id": "d4000000-0000-0000-0000-000000000002",
+      "name": "Query Recent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "httpHeaderAuth": { "id": "MemGwBearer00001", "name": "Memory Gateway Bearer" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json.results || [];\nconst byScope = {}; const byKind = {};\nfor (const m of r) { byScope[m.scope]=(byScope[m.scope]||0)+1; byKind[m.kind]=(byKind[m.kind]||0)+1; }\nconst now = new Date().toISOString().slice(0,10);\nconst fmt = o => Object.entries(o).map(([k,v])=>`${k}:${v}`).join(', ');\nconst body = `# Memory Graph Snapshot ${now}\\n\\nNodes sampled: ${r.length}\\nBy scope: ${fmt(byScope)}\\nBy kind: ${fmt(byKind)}`;\nreturn [{ json: { body, title: `Graph snapshot ${now}`, kind: 'reference', scope: 'graph', source: 'repo-graph-refresh', tags: { area: 'graph', nodes: r.length } } }];"
+      },
+      "id": "d4000000-0000-0000-0000-000000000003",
+      "name": "Graph Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://10.10.0.2:8848/ingest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "d4000000-0000-0000-0000-000000000004",
+      "name": "Ingest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "credentials": {
+        "httpHeaderAuth": { "id": "MemGwBearer00001", "name": "Memory Gateway Bearer" }
+      }
+    }
+  ],
+  "connections": {
+    "Daily": { "main": [[{ "node": "Query Recent", "type": "main", "index": 0 }]] },
+    "Query Recent": { "main": [[{ "node": "Graph Stats", "type": "main", "index": 0 }]] },
+    "Graph Stats": { "main": [[{ "node": "Ingest", "type": "main", "index": 0 }]] }
+  },
+  "settings": {},
+  "active": false
+}

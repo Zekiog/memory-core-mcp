@@ -1,0 +1,77 @@
+{
+  "id": "weeklysynth0001",
+  "name": "weekly-synthesis",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "weeks", "weeksInterval": 1, "triggerAtDay": [0], "triggerAtHour": 6, "triggerAtMinute": 0 }
+          ]
+        }
+      },
+      "id": "c3000000-0000-0000-0000-000000000001",
+      "name": "Weekly",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://10.10.0.2:8848/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"limit\":50}",
+        "options": {}
+      },
+      "id": "c3000000-0000-0000-0000-000000000002",
+      "name": "Query Recent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "httpHeaderAuth": { "id": "MemGwBearer00001", "name": "Memory Gateway Bearer" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json.results || [];\nconst byKind = {};\nfor (const m of r) { byKind[m.kind] = (byKind[m.kind]||0)+1; }\nconst titles = r.slice(0,15).map(m => `- [${m.kind}] ${m.title||m.id}`).join('\\n');\nconst dist = Object.entries(byKind).map(([k,v]) => `${k}:${v}`).join(', ');\nconst now = new Date().toISOString().slice(0,10);\nconst body = `# Weekly Synthesis ${now}\\n\\nMemories sampled: ${r.length} (${dist})\\n\\n## Recent\\n${titles}`;\nreturn [{ json: { body, title: `Weekly synthesis ${now}`, kind: 'reference', scope: 'synthesis', source: 'weekly-synthesis', tags: { area: 'synthesis', count: r.length } } }];"
+      },
+      "id": "c3000000-0000-0000-0000-000000000003",
+      "name": "Synthesize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://10.10.0.2:8848/ingest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "c3000000-0000-0000-0000-000000000004",
+      "name": "Ingest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "credentials": {
+        "httpHeaderAuth": { "id": "MemGwBearer00001", "name": "Memory Gateway Bearer" }
+      }
+    }
+  ],
+  "connections": {
+    "Weekly": { "main": [[{ "node": "Query Recent", "type": "main", "index": 0 }]] },
+    "Query Recent": { "main": [[{ "node": "Synthesize", "type": "main", "index": 0 }]] },
+    "Synthesize": { "main": [[{ "node": "Ingest", "type": "main", "index": 0 }]] }
+  },
+  "settings": {},
+  "active": false
+}
