@@ -1,0 +1,52 @@
+{
+  "name": "Fincept ↔ memory-core-mcp Sync",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Fincept Audit Event",
+      "type": "n8n-nodes-base.webhook",
+      "parameters": {
+        "path": "fincept-audit",
+        "httpMethod": "POST"
+      }
+    },
+    {
+      "id": "store_memory",
+      "name": "Store to Oracle ADB",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "url": "={{ $env.MEMORY_CORE_URL }}/api/memory",
+        "method": "POST",
+        "authentication": "headerAuth",
+        "headerParameters": {
+          "Authorization": "Bearer {{ $env.MEMORY_CORE_TOKEN }}"
+        },
+        "bodyParameters": {
+          "agent": "={{ $json.agent }}",
+          "event_type": "={{ $json.event_type }}",
+          "content": "={{ JSON.stringify($json.data) }}",
+          "tags": ["fincept", "trade-audit"],
+          "source": "fincept-ai-ops"
+        }
+      }
+    },
+    {
+      "id": "vector_index",
+      "name": "Index for Semantic Recall",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "url": "={{ $env.MEMORY_CORE_URL }}/api/memory/index",
+        "method": "POST",
+        "bodyParameters": {
+          "memory_id": "={{ $node.store_memory.json.id }}",
+          "embed": true
+        }
+      }
+    }
+  ],
+  "connections": {
+    "trigger": { "main": [["store_memory"]] },
+    "store_memory": { "main": [["vector_index"]] }
+  },
+  "description": "Syncs Fincept AI Ops audit events to memory-core-mcp for persistent agent memory over Oracle ADB 23ai with vector indexing."
+}
