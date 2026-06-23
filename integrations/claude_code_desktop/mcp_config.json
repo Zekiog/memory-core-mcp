@@ -1,0 +1,9 @@
+{
+  "//": "Merge this into ~/Library/Application Support/Claude/claude_desktop_config.json (the 'mcpServers' object). Zero secrets: the wrapper sources ~/.secrets.d/zmemory-mesh.env. After saving, restart Claude Desktop; Settings > Connectors/MCP should show 'zmemory' Connected. Adjust the absolute path to your clone.",
+  "mcpServers": {
+    "zmemory": {
+      "command": "/Users/z/src/memory-core-mcp/integrations/claude_code_desktop/zmemory-mcp.sh",
+      "args": []
+    }
+  }
+}
