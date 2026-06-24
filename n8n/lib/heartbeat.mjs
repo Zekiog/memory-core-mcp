@@ -31,3 +31,10 @@ export function classify(httpFailed, body, nowMs, thresholdMin = STALE_THRESHOLD
   if (t === null) return 'stale';
   return (nowMs - t) / 60000 > thresholdMin ? 'stale' : 'ok';
 }
+
+export function decide(prev, current) {
+  const previous = prev || 'ok';
+  if (current === previous) return { alert: false, severity: null };
+  if (current === 'ok') return { alert: true, severity: 'recovered' };
+  return { alert: true, severity: current };
+}

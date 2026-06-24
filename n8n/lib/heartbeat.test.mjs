@@ -51,3 +51,16 @@ test('classify: empty body -> stale', () => {
 test('classify: http failed -> down', () => {
   assert.equal(classify(true, null, NOW, 30), 'down');
 });
+
+import { decide } from './heartbeat.mjs';
+
+test('decide: ok->ok silent', () => assert.deepEqual(decide('ok', 'ok'), { alert: false, severity: null }));
+test('decide: ok->stale', () => assert.deepEqual(decide('ok', 'stale'), { alert: true, severity: 'stale' }));
+test('decide: ok->down', () => assert.deepEqual(decide('ok', 'down'), { alert: true, severity: 'down' }));
+test('decide: stale->ok recovered', () => assert.deepEqual(decide('stale', 'ok'), { alert: true, severity: 'recovered' }));
+test('decide: down->ok recovered', () => assert.deepEqual(decide('down', 'ok'), { alert: true, severity: 'recovered' }));
+test('decide: stale->down escalation', () => assert.deepEqual(decide('stale', 'down'), { alert: true, severity: 'down' }));
+test('decide: down->stale partial', () => assert.deepEqual(decide('down', 'stale'), { alert: true, severity: 'stale' }));
+test('decide: stale->stale silent', () => assert.deepEqual(decide('stale', 'stale'), { alert: false, severity: null }));
+test('decide: first run undefined+ok silent', () => assert.deepEqual(decide(undefined, 'ok'), { alert: false, severity: null }));
+test('decide: first run undefined+down alert', () => assert.deepEqual(decide(undefined, 'down'), { alert: true, severity: 'down' }));
