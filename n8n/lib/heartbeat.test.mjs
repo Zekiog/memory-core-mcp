@@ -31,3 +31,23 @@ test('extractNewestTs: empty -> null', () => {
 test('extractNewestTs: unparseable -> null', () => {
   assert.equal(extractNewestTs([{ created_at: 'not-a-date' }]), null);
 });
+
+import { classify } from './heartbeat.mjs';
+
+const NOW = Date.parse('2026-06-24T12:00:00Z');
+
+test('classify: fresh record -> ok', () => {
+  assert.equal(classify(false, [{ created_at: '2026-06-24T11:50:00Z' }], NOW, 30), 'ok');
+});
+test('classify: old record -> stale', () => {
+  assert.equal(classify(false, [{ created_at: '2026-06-24T11:00:00Z' }], NOW, 30), 'stale');
+});
+test('classify: boundary (exactly threshold) -> ok', () => {
+  assert.equal(classify(false, [{ created_at: '2026-06-24T11:30:00Z' }], NOW, 30), 'ok');
+});
+test('classify: empty body -> stale', () => {
+  assert.equal(classify(false, { records: [] }, NOW, 30), 'stale');
+});
+test('classify: http failed -> down', () => {
+  assert.equal(classify(true, null, NOW, 30), 'down');
+});

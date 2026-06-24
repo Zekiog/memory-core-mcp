@@ -24,3 +24,10 @@ export function extractNewestTs(body) {
   }
   return newest;
 }
+
+export function classify(httpFailed, body, nowMs, thresholdMin = STALE_THRESHOLD_MIN) {
+  if (httpFailed) return 'down';
+  const t = extractNewestTs(body);
+  if (t === null) return 'stale';
+  return (nowMs - t) / 60000 > thresholdMin ? 'stale' : 'ok';
+}
