@@ -30,8 +30,9 @@ CREATE TABLE memory_links (
 );
 
 -- Vector index (IVF / disk-based: safe on free tier's limited memory).
--- Create after some rows exist; exact search works without it for small sets.
--- CREATE VECTOR INDEX memories_vec_idx ON memories (embedding)
---   ORGANIZATION NEIGHBOR PARTITIONS
---   DISTANCE COSINE
---   WITH TARGET ACCURACY 90;
+-- Exact search works fine without it below a few thousand rows, but is
+-- created now (Task 8, 2026-06-24) so growth doesn't require a migration.
+CREATE VECTOR INDEX memories_vec_idx ON memories (embedding)
+  ORGANIZATION NEIGHBOR PARTITIONS
+  DISTANCE COSINE
+  WITH TARGET ACCURACY 90;
