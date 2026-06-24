@@ -114,6 +114,9 @@ class _BearerASGI:
                         "headers": [(b"content-type", b"application/json")]})
             await send({"type": "http.response.body", "body": b'{"ok":true}'})
             return
+        if scope.get("path") == "/readyz":
+            await self._app(scope, receive, send)
+            return
         headers = dict(scope.get("headers") or [])
         auth = headers.get(b"authorization", b"").decode("latin-1")
         token = auth[7:].strip() if auth[:7].lower() == "bearer " else ""
@@ -190,6 +193,24 @@ async def _http_query(request: Any) -> Any:
     return JSONResponse({"count": len(safe), "results": safe})
 
 
+async def _http_readyz(request: Any) -> Any:
+    """REST: GET /readyz — readiness probe reporting the active embedding mode.
+
+    Unlike /healthz (always {"ok":true} if the process is up), this reflects
+    whether semantic search is actually working. Returns 503 when embed_mode
+    is 'none' so external monitoring (and a human) notices degradation that
+    would otherwise be silent.
+    """
+    from starlette.concurrency import run_in_threadpool
+    from starlette.responses import JSONResponse
+
+    from .readyz import readyz_payload
+
+    mode = await run_in_threadpool(db.embed_mode, cfg)
+    body, status = readyz_payload(mode)
+    return JSONResponse(body, status_code=status)
+
+
 def _build_http_app() -> Any:
     """MCP streamable-http app + REST automation routes. Appending to the app's
     own router preserves the MCP session-manager lifespan (no nested Mount)."""
@@ -198,6 +219,7 @@ def _build_http_app() -> Any:
     app = mcp.streamable_http_app()
     app.router.routes.append(Route("/ingest", _http_ingest, methods=["POST"]))
     app.router.routes.append(Route("/query", _http_query, methods=["GET", "POST"]))
+    app.router.routes.append(Route("/readyz", _http_readyz, methods=["GET"]))
     return app
 
 
