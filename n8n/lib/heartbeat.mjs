@@ -38,3 +38,36 @@ export function decide(prev, current) {
   if (current === 'ok') return { alert: true, severity: 'recovered' };
   return { alert: true, severity: current };
 }
+
+export function buildHeartbeatItem({ httpFailed, body, nowMs, prevState, prevSince, thresholdMin = STALE_THRESHOLD_MIN }) {
+  const previous = prevState || 'ok';
+  const current = classify(httpFailed, body, nowMs, thresholdMin);
+  const { alert, severity } = decide(previous, current);
+  const newestMs = httpFailed ? null : extractNewestTs(body);
+  const ageMin = newestMs === null ? null : Math.round((nowMs - newestMs) / 60000);
+  const nowIso = new Date(nowMs).toISOString();
+  const nextSince = current === previous ? (prevSince || nowIso) : nowIso;
+
+  let text = null;
+  if (alert) {
+    if (severity === 'down') {
+      text = `🔴 *Memory Mesh DOWN* — gateway /query unreachable (avm-02:8848). Last healthy: ${prevSince || 'unknown'}.`;
+    } else if (severity === 'stale') {
+      text = `🟠 *Memory Mesh STALE* — newest record ${ageMin}m old (threshold ${thresholdMin}m). Gateway up; ingest may have stopped.`;
+    } else {
+      const dt = prevSince ? `${Math.round((nowMs - Date.parse(prevSince)) / 60000)}m` : 'unknown';
+      text = `✅ *Memory Mesh RECOVERED* — flow normal. Newest record ${ageMin ?? '?'}m old. Downtime ≈ ${dt}.`;
+    }
+  }
+
+  return {
+    alert,
+    severity,
+    current,
+    ageMin,
+    newestTs: newestMs === null ? null : new Date(newestMs).toISOString(),
+    text,
+    nextState: current,
+    nextSince,
+  };
+}

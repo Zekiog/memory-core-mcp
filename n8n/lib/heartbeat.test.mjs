@@ -64,3 +64,35 @@ test('decide: down->stale partial', () => assert.deepEqual(decide('down', 'stale
 test('decide: stale->stale silent', () => assert.deepEqual(decide('stale', 'stale'), { alert: false, severity: null }));
 test('decide: first run undefined+ok silent', () => assert.deepEqual(decide(undefined, 'ok'), { alert: false, severity: null }));
 test('decide: first run undefined+down alert', () => assert.deepEqual(decide(undefined, 'down'), { alert: true, severity: 'down' }));
+
+import { buildHeartbeatItem } from './heartbeat.mjs';
+
+const T = Date.parse('2026-06-24T12:00:00Z');
+
+test('build: ok->ok no alert, keeps since', () => {
+  const out = buildHeartbeatItem({ httpFailed: false, body: [{ created_at: '2026-06-24T11:55:00Z' }], nowMs: T, prevState: 'ok', prevSince: '2026-06-24T09:00:00Z' });
+  assert.equal(out.alert, false);
+  assert.equal(out.current, 'ok');
+  assert.equal(out.text, null);
+  assert.equal(out.nextState, 'ok');
+  assert.equal(out.nextSince, '2026-06-24T09:00:00Z');
+});
+test('build: ok->down alerts + new since', () => {
+  const out = buildHeartbeatItem({ httpFailed: true, body: null, nowMs: T, prevState: 'ok', prevSince: '2026-06-24T09:00:00Z' });
+  assert.equal(out.alert, true);
+  assert.equal(out.severity, 'down');
+  assert.match(out.text, /DOWN/);
+  assert.equal(out.nextState, 'down');
+  assert.equal(out.nextSince, '2026-06-24T12:00:00.000Z');
+});
+test('build: down->ok recovered with downtime', () => {
+  const out = buildHeartbeatItem({ httpFailed: false, body: [{ created_at: '2026-06-24T11:59:00Z' }], nowMs: T, prevState: 'down', prevSince: '2026-06-24T11:00:00Z' });
+  assert.equal(out.severity, 'recovered');
+  assert.match(out.text, /RECOVERED/);
+  assert.match(out.text, /Downtime ≈ 60m/);
+});
+test('build: stale alert reports age', () => {
+  const out = buildHeartbeatItem({ httpFailed: false, body: [{ created_at: '2026-06-24T11:00:00Z' }], nowMs: T, prevState: 'ok', prevSince: null });
+  assert.equal(out.severity, 'stale');
+  assert.match(out.text, /60m old/);
+});
