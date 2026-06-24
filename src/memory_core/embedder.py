@@ -6,6 +6,7 @@ sentence-transformers/all-MiniLM-L6-v2, matching the VECTOR(384) column.
 from __future__ import annotations
 
 import array
+import os
 
 _MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 _DIM = 384
@@ -23,7 +24,8 @@ def available() -> bool:
     try:
         from fastembed import TextEmbedding
 
-        _model = TextEmbedding(model_name=_MODEL_NAME)
+        cache_dir = os.environ.get("FASTEMBED_CACHE_DIR") or None
+        _model = TextEmbedding(model_name=_MODEL_NAME, cache_dir=cache_dir)
         return True
     except Exception:  # noqa: BLE001 - degrade gracefully to keyword search
         _unavailable = True
