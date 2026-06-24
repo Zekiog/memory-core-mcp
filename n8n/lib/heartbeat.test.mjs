@@ -11,6 +11,9 @@ test('extractRecords: records envelope', () => {
 test('extractRecords: data envelope', () => {
   assert.deepEqual(extractRecords({ data: [{ a: 1 }] }), [{ a: 1 }]);
 });
+test('extractRecords: results envelope', () => {
+  assert.deepEqual(extractRecords({ results: [{ a: 1 }] }), [{ a: 1 }]);
+});
 test('extractRecords: none / null', () => {
   assert.deepEqual(extractRecords({ foo: 1 }), []);
   assert.deepEqual(extractRecords(null), []);
@@ -50,6 +53,9 @@ test('classify: empty body -> stale', () => {
 });
 test('classify: http failed -> down', () => {
   assert.equal(classify(true, null, NOW, 30), 'down');
+});
+test('classify: future timestamp -> stale', () => {
+  assert.equal(classify(false, [{ created_at: '2026-06-24T13:00:00Z' }], NOW, 30), 'stale');
 });
 
 import { decide } from './heartbeat.mjs';
@@ -95,4 +101,10 @@ test('build: stale alert reports age', () => {
   const out = buildHeartbeatItem({ httpFailed: false, body: [{ created_at: '2026-06-24T11:00:00Z' }], nowMs: T, prevState: 'ok', prevSince: null });
   assert.equal(out.severity, 'stale');
   assert.match(out.text, /60m old/);
+});
+test('build: stale with unparseable timestamp -> ?m old, no null', () => {
+  const out = buildHeartbeatItem({ httpFailed: false, body: [{ created_at: 'not-a-date' }], nowMs: T, prevState: 'ok', prevSince: null });
+  assert.equal(out.severity, 'stale');
+  assert.match(out.text, /\?m old/);
+  assert.ok(!out.text.includes('null'), `text should not contain "null": ${out.text}`);
 });

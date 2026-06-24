@@ -29,7 +29,9 @@ export function classify(httpFailed, body, nowMs, thresholdMin = STALE_THRESHOLD
   if (httpFailed) return 'down';
   const t = extractNewestTs(body);
   if (t === null) return 'stale';
-  return (nowMs - t) / 60000 > thresholdMin ? 'stale' : 'ok';
+  const ageMin = (nowMs - t) / 60000;
+  if (ageMin < 0) return 'stale';
+  return ageMin > thresholdMin ? 'stale' : 'ok';
 }
 
 export function decide(prev, current) {
@@ -53,7 +55,8 @@ export function buildHeartbeatItem({ httpFailed, body, nowMs, prevState, prevSin
     if (severity === 'down') {
       text = `🔴 *Memory Mesh DOWN* — gateway /query unreachable (avm-02:8848). Last healthy: ${prevSince || 'unknown'}.`;
     } else if (severity === 'stale') {
-      text = `🟠 *Memory Mesh STALE* — newest record ${ageMin}m old (threshold ${thresholdMin}m). Gateway up; ingest may have stopped.`;
+      const ageDisp = (ageMin == null || ageMin < 0) ? '?' : ageMin;
+      text = `🟠 *Memory Mesh STALE* — newest record ${ageDisp}m old (threshold ${thresholdMin}m). Gateway up; ingest may have stopped.`;
     } else {
       const dt = prevSince ? `${Math.round((nowMs - Date.parse(prevSince)) / 60000)}m` : 'unknown';
       text = `✅ *Memory Mesh RECOVERED* — flow normal. Newest record ${ageMin ?? '?'}m old. Downtime ≈ ${dt}.`;
