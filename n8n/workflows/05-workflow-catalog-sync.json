@@ -1,0 +1,72 @@
+{
+  "id": "wfcatalogsync1",
+  "name": "workflow-catalog-sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "hours", "hoursInterval": 6 }
+          ]
+        }
+      },
+      "id": "e5000000-0000-0000-0000-000000000001",
+      "name": "Every 6h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "resource": "workflow",
+        "operation": "getAll",
+        "returnAll": true
+      },
+      "id": "e5000000-0000-0000-0000-000000000002",
+      "name": "List Workflows",
+      "type": "n8n-nodes-base.n8n",
+      "typeVersion": 1,
+      "position": [220, 0],
+      "credentials": {
+        "n8nApi": { "id": "N8nApiSelf00001", "name": "n8n API (self)" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(i => i.json);\nconst out = [];\nfor (const wf of items) {\n  const nodeTypes = [...new Set((wf.nodes || []).map(n => n.type.replace('n8n-nodes-base.', '')))];\n  const tagNames = (wf.tags || []).map(t => (typeof t === 'string' ? t : t.name));\n  const body = `Workflow: ${wf.name}\\nActive: ${wf.active}\\nNode types: ${nodeTypes.join(', ')}\\nTags: ${tagNames.join(', ')}\\nUpdated: ${wf.updatedAt}`;\n  out.push({ json: {\n    scope: 'n8n.workflows',\n    source: `n8n:workflow:${wf.id}`,\n    title: wf.name,\n    body,\n    kind: 'reference',\n    tags: { active: wf.active, nodeTypes, tagNames, n8nUpdatedAt: wf.updatedAt },\n  } });\n}\nreturn out;"
+      },
+      "id": "e5000000-0000-0000-0000-000000000003",
+      "name": "Map To Memory",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://10.10.0.2:8848/catalog/upsert",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "e5000000-0000-0000-0000-000000000004",
+      "name": "Upsert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "credentials": {
+        "httpHeaderAuth": { "id": "MemGwBearer00001", "name": "Memory Gateway Bearer" }
+      }
+    }
+  ],
+  "connections": {
+    "Every 6h": { "main": [[{ "node": "List Workflows", "type": "main", "index": 0 }]] },
+    "List Workflows": { "main": [[{ "node": "Map To Memory", "type": "main", "index": 0 }]] },
+    "Map To Memory": { "main": [[{ "node": "Upsert", "type": "main", "index": 0 }]] }
+  },
+  "settings": {},
+  "active": false
+}
