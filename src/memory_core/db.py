@@ -129,6 +129,65 @@ def add_memory(cfg: Config, *, body: str, title: str | None, kind: str,
         return out_id.getvalue()[0]
 
 
+def upsert_memory_by_source(cfg: Config, *, scope: str, source: str,
+                             title: str | None, body: str, kind: str,
+                             tags: dict | None) -> tuple[str, bool]:
+    """Insert, or update in place if a row with this (scope, source) exists.
+
+    Used by content-sync automations (e.g. the n8n workflow catalog, Task 12)
+    where re-running the sync must update existing rows, not duplicate them.
+    Returns (id, created) where created is True only on first insert.
+    """
+    mode = embed_mode(cfg)
+    etext = (title + "\n" + body) if title else body
+    tags_json = json.dumps(tags) if tags else None
+    with conn() as c, c.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM memories WHERE scope = :scope AND source = :source",
+            scope=scope, source=source,
+        )
+        row = cur.fetchone()
+        if row is None:
+            mem_id = None
+        else:
+            (mem_id,) = row
+        if mem_id is not None:
+            if mode == "indb":
+                cur.execute(
+                    f"""
+                    UPDATE memories SET title = :title, body = :body, tags = :tags,
+                           embedding = VECTOR_EMBEDDING({cfg.embed_model} USING :etext AS data),
+                           updated_at = SYSTIMESTAMP
+                    WHERE id = :id
+                    """,
+                    title=title, body=body, tags=tags_json, etext=etext, id=mem_id,
+                )
+            elif mode == "client":
+                cur.execute(
+                    """
+                    UPDATE memories SET title = :title, body = :body, tags = :tags,
+                           embedding = :evec, updated_at = SYSTIMESTAMP
+                    WHERE id = :id
+                    """,
+                    title=title, body=body, tags=tags_json,
+                    evec=embedder.embed(etext), id=mem_id,
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE memories SET title = :title, body = :body, tags = :tags,
+                           updated_at = SYSTIMESTAMP
+                    WHERE id = :id
+                    """,
+                    title=title, body=body, tags=tags_json, id=mem_id,
+                )
+            c.commit()
+            return mem_id, False
+    new_id = add_memory(cfg, body=body, title=title, kind=kind, scope=scope,
+                         tags=tags, source=source, vault_path=None)
+    return new_id, True
+
+
 def _row_to_dict(cur, row) -> dict:
     cols = [d[0].lower() for d in cur.description]
     rec = dict(zip(cols, row))
