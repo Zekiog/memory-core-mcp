@@ -36,3 +36,35 @@ Expected: no exception; the command exits 0. This downloads the model once
 into `/opt/memory-core/.fastembed` and `/opt/memory-core/.hf`, owned by the
 service user (`ubuntu` — confirm with `systemctl cat memory-core.service |
 grep User=` before running; adjust `-o`/`-g`/`-u` if different).
+
+## Degradation alarm
+
+```bash
+scp deploy/scripts/memory-core-readyz-check.sh z-agentic-vm-02:/tmp/
+ssh z-agentic-vm-02 "sudo install -d /opt/memory-core/deploy/scripts && \
+  sudo install -m 755 /tmp/memory-core-readyz-check.sh /opt/memory-core/deploy/scripts/ && \
+  rm /tmp/memory-core-readyz-check.sh"
+scp deploy/systemd/memory-core-readyz-check.{service,timer} z-agentic-vm-02:/tmp/
+ssh z-agentic-vm-02 "sudo install -m 644 /tmp/memory-core-readyz-check.service /etc/systemd/system/ && \
+  sudo install -m 644 /tmp/memory-core-readyz-check.timer /etc/systemd/system/ && \
+  rm /tmp/memory-core-readyz-check.{service,timer} && \
+  sudo systemctl daemon-reload && \
+  sudo systemctl enable --now memory-core-readyz-check.timer"
+```
+
+Verify the timer is scheduled:
+```bash
+ssh z-agentic-vm-02 "systemctl list-timers memory-core-readyz-check.timer"
+```
+
+Verify the alarm actually fires (simulate degradation by stopping the
+gateway briefly):
+```bash
+ssh z-agentic-vm-02 "sudo systemctl stop memory-core && \
+  sudo systemctl start memory-core-readyz-check.service && \
+  journalctl -t memory-core-readyz --since '1 minute ago' --no-pager && \
+  sudo systemctl start memory-core"
+```
+Expected: a `memory-core-readyz[...]: embedding degraded: GET ... returned 000`
+line (connection refused while stopped), then the final command restores
+the service.

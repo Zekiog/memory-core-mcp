@@ -1,0 +1,7 @@
+[Unit]
+Description=Check memory-core /readyz and alert on degradation
+After=memory-core.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/memory-core/deploy/scripts/memory-core-readyz-check.sh
