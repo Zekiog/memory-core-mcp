@@ -162,6 +162,41 @@ async def _http_ingest(request: Any) -> Any:
     return JSONResponse({"id": mid, "ok": True})
 
 
+async def _http_catalog_upsert(request: Any) -> Any:
+    """REST: POST /catalog/upsert — idempotent upsert keyed by (scope, source).
+
+    Used by content-sync automations (n8n workflow catalog, Task 12) so
+    re-running a sync updates existing rows instead of duplicating them.
+    Requires bearer auth, same as /ingest.
+    """
+    from starlette.concurrency import run_in_threadpool
+    from starlette.responses import JSONResponse
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    body = (data or {}).get("body")
+    source = (data or {}).get("source")
+    if not body or not source:
+        return JSONResponse({"error": "body and source are required"},
+                             status_code=400)
+
+    def _write() -> tuple[str, bool]:
+        return db.upsert_memory_by_source(
+            cfg,
+            scope=data.get("scope") or cfg.default_scope,
+            source=source,
+            title=data.get("title"),
+            body=body,
+            kind=data.get("kind", "reference"),
+            tags=data.get("tags"),
+        )
+
+    mem_id, created = await run_in_threadpool(_write)
+    return JSONResponse({"id": mem_id, "created": created, "ok": True})
+
+
 async def _http_query(request: Any) -> Any:
     """REST: GET/POST /query — semantic search, or recent list when no query."""
     from starlette.concurrency import run_in_threadpool
@@ -220,6 +255,7 @@ def _build_http_app() -> Any:
     app.router.routes.append(Route("/ingest", _http_ingest, methods=["POST"]))
     app.router.routes.append(Route("/query", _http_query, methods=["GET", "POST"]))
     app.router.routes.append(Route("/readyz", _http_readyz, methods=["GET"]))
+    app.router.routes.append(Route("/catalog/upsert", _http_catalog_upsert, methods=["POST"]))
     return app
 
 
