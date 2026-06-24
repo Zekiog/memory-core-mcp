@@ -1,0 +1,110 @@
+{
+  "name": "Memory Mesh Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mesh-sync",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-ingest",
+      "name": "Client Event In",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "zmemory-mesh-sync"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ZMEMORY_GATEWAY_URL }}/ingest",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.ZMEMORY_BEARER_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ body: $json.body, title: $json.title, kind: $json.kind || 'fact', scope: $json.scope, source: $json.source || 'n8n-mesh-sync', tags: $json.tags }) }}",
+        "options": {}
+      },
+      "id": "http-ingest",
+      "name": "Store -> Mesh",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "rule": { "interval": [ { "field": "minutes", "minutesInterval": 15 } ] }
+      },
+      "id": "schedule",
+      "name": "Every 15m",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 540]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ZMEMORY_GATEWAY_URL }}/query",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.ZMEMORY_BEARER_TOKEN }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ limit: 10 }) }}",
+        "options": {}
+      },
+      "id": "http-poll",
+      "name": "Recent Pulse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 540]
+    },
+    {
+      "parameters": {},
+      "id": "noop-route",
+      "name": "Route To Clients",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [720, 540]
+    }
+  ],
+  "connections": {
+    "Client Event In": {
+      "main": [ [ { "node": "Store -> Mesh", "type": "main", "index": 0 } ] ]
+    },
+    "Store -> Mesh": {
+      "main": [ [ { "node": "Respond", "type": "main", "index": 0 } ] ]
+    },
+    "Every 15m": {
+      "main": [ [ { "node": "Recent Pulse", "type": "main", "index": 0 } ] ]
+    },
+    "Recent Pulse": {
+      "main": [ [ { "node": "Route To Clients", "type": "main", "index": 0 } ] ]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": [],
+  "pinData": {}
+}

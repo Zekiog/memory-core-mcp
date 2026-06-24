@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent for the Pi Agent memory adapter (Unix-socket mesh daemon).
+
+  Install:
+    cp integrations/pi_agent/launchd_plist.xml \
+       ~/Library/LaunchAgents/io.zmemory.mesh-adapter.plist
+    launchctl load -w ~/Library/LaunchAgents/io.zmemory.mesh-adapter.plist
+
+  KeepAlive=true makes launchd restart the daemon automatically if it exits or
+  crashes. No secrets here: the adapter's MeshRouter reads gateway URL + bearer
+  from ~/.secrets.d/zmemory-mesh.env. Adjust the absolute paths to your clone.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>io.zmemory.mesh-adapter</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/z/src/memory-core-mcp/integrations/pi_agent/memory_adapter.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/z/src/memory-core-mcp/integrations</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/z/.pi/logs/zmemory-mesh-adapter.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/z/.pi/logs/zmemory-mesh-adapter.err.log</string>
+</dict>
+</plist>
