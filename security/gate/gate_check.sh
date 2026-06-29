@@ -65,8 +65,11 @@ preflight() {
 
 step1_ss() {
   local out
-  out="$(ssh "$TARGET_HOST" \
-    "sudo ss -tulnp 2>/dev/null | awk '\$5 ~ /:(5678|6379|5432)\$/'" 2>/dev/null || true)"
+  # Project column 5 (Local Address:Port) locally so the Peer column (e.g. 0.0.0.0:*)
+  # never reaches the public-bind grep below. Remote-side awk without {print $5} leaked
+  # the peer column and caused false RED on mesh-bound sockets (regression task_726de0e9).
+  out="$(ssh "$TARGET_HOST" "sudo ss -tulnp 2>/dev/null" 2>/dev/null \
+    | awk '$5 ~ /:(5678|6379|5432)$/ {print $5}' || true)"
   if printf '%s\n' "$out" | grep -Eq '(^|[[:space:]])0\.0\.0\.0:|(^|[[:space:]])\[::\]?:|(^|[[:space:]]):::'; then
     FAILS+=("ss:public-bind"); ADIM_SS=0
   fi

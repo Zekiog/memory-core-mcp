@@ -25,6 +25,18 @@ run_gate() {
   echo "$output" | grep -q 'mesh_gate_adim{host="avm-02",adim="ss"} 0'
 }
 
+@test "mesh-bound local addr with public peer column stays GREEN (regression task_726de0e9)" {
+  # ss_green.txt has Local=10.10.0.2:5678 but Peer=0.0.0.0:*. The gate must project
+  # column 5 (Local Address:Port) before the public-bind grep, else the peer's
+  # 0.0.0.0:* triggers a false RED. Stub now emits raw ss output to exercise the
+  # gate's own projection (the bug was masked when the stub pre-projected).
+  export SS_FIXTURE="ss_green.txt"
+  run run_gate prom
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q 'mesh_gate_verdict{host="avm-02"} 1'
+  echo "$output" | grep -q 'mesh_gate_adim{host="avm-02",adim="ss"} 1'
+}
+
 @test "externally open gated port makes verdict RED and ext_port_open=1" {
   export STUB_OPEN_PORTS="5678"   # export so the stubbed nc subprocess sees it
   run run_gate prom
