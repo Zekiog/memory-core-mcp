@@ -1,0 +1,1 @@
+{"ts":"2026-06-29T12:00:00Z","host":"avm-02","verdict":"GREEN","exit":0,"fails":[],"warns":["docker-user:empty(P2.1-latent)"],"ext_ports":{"5678":"closed","6379":"closed","5432":"closed"},"probe":"nc","strict_p2_1":0,"runner":"avm-01","duration_s":2}

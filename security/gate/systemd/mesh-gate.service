@@ -1,0 +1,23 @@
+[Unit]
+Description=Mesh Gate — avm-02 public-exposure continuous assurance
+Documentation=https://internal/docs/superpowers/specs/2026-06-29-mesh-gate-continuous-design.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Adjust paths at deploy. TEXTFILE_DIR must match node_exporter --collector.textfile.directory.
+Environment=GATE_HOME=/opt/mesh-gate
+Environment=TEXTFILE_DIR=/var/lib/node_exporter/textfile_collector
+Environment=LEDGER=/var/lib/mesh-gate/security-audit.jsonl
+Environment=HOSTLABEL=avm-02
+Environment=RUNNER=avm-01
+# 1) prom -> atomic textfile;  2) json -> append ledger
+ExecStart=/bin/bash -c 'FORMAT=prom "$GATE_HOME/gate_check.sh" > "$TEXTFILE_DIR/mesh_gate.prom.tmp" 2>/dev/null && mv "$TEXTFILE_DIR/mesh_gate.prom.tmp" "$TEXTFILE_DIR/mesh_gate.prom"'
+ExecStart=/bin/bash -c 'FORMAT=json "$GATE_HOME/gate_check.sh" | "$GATE_HOME/audit/append_jsonl.sh" "$LEDGER"'
+# Gate exit 1 (RED) / 2 (CONFIG) are expected, non-fatal to the unit:
+SuccessExitStatus=0 1 2
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

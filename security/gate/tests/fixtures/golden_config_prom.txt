@@ -1,0 +1,9 @@
+# HELP mesh_gate_config_error Gate hit CONFIG error (exit 2)
+# TYPE mesh_gate_config_error gauge
+mesh_gate_config_error{host="avm-02"} 1
+# HELP mesh_gate_exec_duration_seconds Wall time of the gate run
+# TYPE mesh_gate_exec_duration_seconds gauge
+mesh_gate_exec_duration_seconds{host="avm-02"} 0
+# HELP mesh_gate_last_run_timestamp_seconds Unix time the gate completed
+# TYPE mesh_gate_last_run_timestamp_seconds gauge
+mesh_gate_last_run_timestamp_seconds{host="avm-02"} 1751193600
