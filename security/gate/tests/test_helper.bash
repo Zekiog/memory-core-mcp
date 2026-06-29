@@ -11,7 +11,7 @@ cmd="\${@: -1}"
 if [ "\${STUB_SSH_UNREACHABLE:-0}" = "1" ]; then exit 255; fi
 case "\$cmd" in
   true) exit 0 ;;
-  *"ss -tulnp"*)      cat "$FIXTURES/\${SS_FIXTURE:-ss_green.txt}" ;;
+  *"ss -tulnp"*)      cat "$FIXTURES/\${SS_FIXTURE:-ss_green.txt}" | awk '\$5 ~ /:(5678|6379|5432)\$/ {print \$5}' ;;
   *"ufw status"*)     cat "$FIXTURES/\${UFW_FIXTURE:-ufw_ok.txt}" ;;
   *"DOCKER-USER"*)    cat "$FIXTURES/\${DOCKERUSER_FIXTURE:-dockeruser_empty.txt}" ;;
   *"docker inspect"*) cat "$FIXTURES/\${DOCKERBIND_FIXTURE:-docker_bind_ok.txt}" ;;
