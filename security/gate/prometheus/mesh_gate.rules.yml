@@ -1,0 +1,27 @@
+groups:
+  - name: mesh_gate
+    rules:
+      - alert: MeshGateRED
+        expr: mesh_gate_verdict == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Mesh gate RED on {{ $labels.host }} — public exposure detected"
+          description: "gate_check.sh verdict=RED. Inspect mesh_gate_adim / mesh_gate_ext_port_open for {{ $labels.host }}."
+      - alert: MeshGateStale
+        expr: time() - mesh_gate_last_run_timestamp_seconds > 3600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mesh gate sensor STALE on {{ $labels.host }} — no fresh run >1h (timer dead?)"
+          description: "The security sensor stopped producing verdicts. A silent monitor is worse than none."
+      - alert: MeshGateConfigError
+        expr: mesh_gate_config_error == 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mesh gate CONFIG error on {{ $labels.host }} — ssh/probe tool broken, gate blind"
+          description: "Gate hit exit 2 for >15m. The gate cannot verify avm-02; treat as unknown, not safe."
