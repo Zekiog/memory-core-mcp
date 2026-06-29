@@ -1,0 +1,26 @@
+# HELP mesh_gate_verdict Overall gate verdict (1=GREEN no exposure, 0=RED exposure found)
+# TYPE mesh_gate_verdict gauge
+mesh_gate_verdict{host="avm-02"} 1
+# HELP mesh_gate_adim Per-step result (1=pass, 0=fail)
+# TYPE mesh_gate_adim gauge
+mesh_gate_adim{host="avm-02",adim="ss"} 1
+mesh_gate_adim{host="avm-02",adim="ufw"} 1
+mesh_gate_adim{host="avm-02",adim="docker_bind"} 1
+mesh_gate_adim{host="avm-02",adim="ext_probe"} 1
+# HELP mesh_gate_ext_port_open External reachability (1=OPEN=bad, 0=closed/filtered=good)
+# TYPE mesh_gate_ext_port_open gauge
+mesh_gate_ext_port_open{host="avm-02",port="5678"} 0
+mesh_gate_ext_port_open{host="avm-02",port="6379"} 0
+mesh_gate_ext_port_open{host="avm-02",port="5432"} 0
+# HELP mesh_gate_strict_p2_1 STRICT_P2_1 in effect (1=empty DOCKER-USER counts as RED)
+# TYPE mesh_gate_strict_p2_1 gauge
+mesh_gate_strict_p2_1{host="avm-02"} 0
+# HELP mesh_gate_config_error Gate hit CONFIG error (exit 2)
+# TYPE mesh_gate_config_error gauge
+mesh_gate_config_error{host="avm-02"} 0
+# HELP mesh_gate_exec_duration_seconds Wall time of the gate run
+# TYPE mesh_gate_exec_duration_seconds gauge
+mesh_gate_exec_duration_seconds{host="avm-02"} 2
+# HELP mesh_gate_last_run_timestamp_seconds Unix time the gate completed
+# TYPE mesh_gate_last_run_timestamp_seconds gauge
+mesh_gate_last_run_timestamp_seconds{host="avm-02"} 1751193600
