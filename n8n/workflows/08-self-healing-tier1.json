@@ -1,0 +1,121 @@
+{
+  "name": "08-self-healing-tier1",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {"interval": [{"field": "minutes", "minutesInterval": 10}]}
+      },
+      "name": "Every 10 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {"command": "df / | awk 'NR==2{print $5}' | tr -d '%'"},
+      "name": "Read Disk Pct",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [480, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [{"value1": "={{ parseInt($json.stdout) }}", "operation": "largerEqual", "value2": 85}]
+        }
+      },
+      "name": "Disk >= 85%?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [720, 200]
+    },
+    {
+      "parameters": {
+        "command": "bash /opt/memory-core-mcp/scripts/gate_check.sh disk_cleanup && find /tmp /var/log -name '*.gz' -mtime +7 -delete && journalctl --vacuum-size=200M && echo cleanup_ok"
+      },
+      "name": "T1: Cleanup",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [960, 100]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.MEMORY_CORE_URL }}/events",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "source",            "value": "08-self-healing-tier1"},
+            {"name": "event_type",        "value": "disk_cleanup_ok"},
+            {"name": "severity",          "value": "info"},
+            {"name": "remediation_taken", "value": "log-cleanup+vacuum"},
+            {"name": "outcome",           "value": "={{ $json.stdout }"}
+          ]
+        }
+      },
+      "name": "Log cleanup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1200, 100]
+    },
+    {
+      "parameters": {
+        "command": "systemctl list-units 'actions.runner.*' --state=failed --no-pager | grep -c failed || true"
+      },
+      "name": "Read Runner Fails",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [480, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [{"value1": "={{ parseInt($json.stdout) }}", "operation": "largerEqual", "value2": 3}]
+        }
+      },
+      "name": "Streak >= 3?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [720, 400]
+    },
+    {
+      "parameters": {
+        "command": "bash /opt/memory-core-mcp/scripts/gate_check.sh runner_restart && systemctl restart 'actions.runner.*' && echo restart_ok"
+      },
+      "name": "T1: Restart Runners",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [960, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.MEMORY_CORE_URL }}/events",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "source",            "value": "08-self-healing-tier1"},
+            {"name": "event_type",        "value": "runner_restart"},
+            {"name": "severity",          "value": "warn"},
+            {"name": "remediation_taken", "value": "systemctl restart runner"},
+            {"name": "outcome",           "value": "ok"}
+          ]
+        }
+      },
+      "name": "Log runner restart",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1200, 400]
+    }
+  ],
+  "connections": {
+    "Every 10 min":      {"main": [[{"node": "Read Disk Pct",    "type": "main", "index": 0}, {"node": "Read Runner Fails", "type": "main", "index": 0}]]},
+    "Read Disk Pct":     {"main": [[{"node": "Disk >= 85%?",      "type": "main", "index": 0}]]},
+    "Disk >= 85%?":      {"main": [[{"node": "T1: Cleanup",       "type": "main", "index": 0}], []]},
+    "T1: Cleanup":       {"main": [[{"node": "Log cleanup",       "type": "main", "index": 0}]]},
+    "Read Runner Fails": {"main": [[{"node": "Streak >= 3?",      "type": "main", "index": 0}]]},
+    "Streak >= 3?":      {"main": [[{"node": "T1: Restart Runners","type": "main", "index": 0}], []]},
+    "T1: Restart Runners":{"main": [[{"node": "Log runner restart","type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "tags": [{"name": "infra"}, {"name": "self-healing"}, {"name": "P2.5"}]
+}

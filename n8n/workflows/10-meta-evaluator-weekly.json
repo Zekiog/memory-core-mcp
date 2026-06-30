@@ -1,0 +1,71 @@
+{
+  "name": "10-meta-evaluator-weekly",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {"interval": [{"field": "cronExpression", "expression": "0 23 * * 0"}]}
+      },
+      "name": "Every Sunday 23:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "command": "cd /opt/memory-core-mcp && python3 scripts/meta_evaluator.py 2>&1"
+      },
+      "name": "Run meta_evaluator.py",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [{"value1": "={{ $json.exitCode }}", "operation": "notEqual", "value2": 0}]
+        }
+      },
+      "name": "Script failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "meta_evaluator.py FAILED\n\n`={{ $json.stderr }}`",
+        "additionalFields": {"parse_mode": "Markdown"}
+      },
+      "name": "TG: script error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [960, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.MEMORY_CORE_URL }}/events",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "source",     "value": "10-meta-evaluator-weekly"},
+            {"name": "event_type", "value": "meta_eval_run"},
+            {"name": "severity",   "value": "info"},
+            {"name": "outcome",    "value": "={{ $json.stdout.substring(0,200) }}"}
+          ]
+        }
+      },
+      "name": "Log eval complete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [960, 400]
+    }
+  ],
+  "connections": {
+    "Every Sunday 23:00":   {"main": [[{"node": "Run meta_evaluator.py", "type": "main", "index": 0}]]},
+    "Run meta_evaluator.py":{"main": [[{"node": "Script failed?",        "type": "main", "index": 0}]]},
+    "Script failed?":       {"main": [[{"node": "TG: script error",       "type": "main", "index": 0}], [{"node": "Log eval complete", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "tags": [{"name": "infra"}, {"name": "meta-evaluator"}, {"name": "P2.5"}]
+}

@@ -1,0 +1,139 @@
+{
+  "name": "09-self-healing-tier2",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {"interval": [{"field": "minutes", "minutesInterval": 15}]}
+      },
+      "name": "Every 15 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.NEON_QUERY_URL }}",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [{
+            "name": "sql",
+            "value": "SELECT event_type, COUNT(*) as cnt FROM event_log WHERE ts >= NOW() - INTERVAL '15 minutes' AND severity IN ('error','critical') GROUP BY event_type"
+          }]
+        }
+      },
+      "name": "Query critical events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{"value1": "={{ $json.rows.map(r=>r.event_type).join(',') }}", "operation": "contains", "value2": "disk_crit"}]
+        }
+      },
+      "name": "DISK_CRIT?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [720, 150]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "DISK_CRIT on AVM-02\n\nTier-1 cleanup failed.\nProposed: archive large log dirs.\n\nReply /approve_disk_archive within 15 min.",
+        "additionalFields": {"parse_mode": "Markdown"}
+      },
+      "name": "TG: disk archive",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [960, 150]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{"value1": "={{ $json.rows.map(r=>r.event_type).join(',') }}", "operation": "contains", "value2": "runner_down_all"}]
+        }
+      },
+      "name": "RUNNER_DOWN_ALL?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [720, 350]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "All runners DOWN on AVM-02\n\nProposed: spawn runner on AVM-03.\n\nReply /approve_runner_spawn within 15 min.",
+        "additionalFields": {"parse_mode": "Markdown"}
+      },
+      "name": "TG: runner spawn",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [960, 350]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{"value1": "={{ $json.rows.map(r=>r.event_type).join(',') }}", "operation": "contains", "value2": "n8n_all_fail"}]
+        }
+      },
+      "name": "N8N_ALL_FAIL?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [720, 550]
+    },
+    {
+      "parameters": {
+        "command": "bash /opt/memory-core-mcp/scripts/gate_check.sh n8n_restore_dryrun && echo DRY_RUN_OK"
+      },
+      "name": "Dry-run restore",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [960, 550]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "n8n ALL workflows failing\n\nDry-run: `={{ $json.stdout }}`\n\nReply /approve_n8n_restore to execute full restore.",
+        "additionalFields": {"parse_mode": "Markdown"}
+      },
+      "name": "TG: n8n restore",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1200, 550]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.MEMORY_CORE_URL }}/events",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "source",            "value": "09-self-healing-tier2"},
+            {"name": "event_type",        "value": "human_override"},
+            {"name": "severity",          "value": "warn"},
+            {"name": "remediation_taken", "value": "telegram_approval_requested"},
+            {"name": "outcome",           "value": "awaiting_human"}
+          ]
+        }
+      },
+      "name": "Log approval sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1400, 350]
+    }
+  ],
+  "connections": {
+    "Every 15 min":       {"main": [[{"node": "Query critical events", "type": "main", "index": 0}]]},
+    "Query critical events":{"main": [[{"node": "DISK_CRIT?", "type": "main", "index": 0}, {"node": "RUNNER_DOWN_ALL?", "type": "main", "index": 0}, {"node": "N8N_ALL_FAIL?", "type": "main", "index": 0}]]},
+    "DISK_CRIT?":          {"main": [[{"node": "TG: disk archive",   "type": "main", "index": 0}], []]},
+    "RUNNER_DOWN_ALL?":    {"main": [[{"node": "TG: runner spawn",   "type": "main", "index": 0}], []]},
+    "N8N_ALL_FAIL?":       {"main": [[{"node": "Dry-run restore",    "type": "main", "index": 0}], []]},
+    "Dry-run restore":     {"main": [[{"node": "TG: n8n restore",    "type": "main", "index": 0}]]},
+    "TG: disk archive":    {"main": [[{"node": "Log approval sent",  "type": "main", "index": 0}]]},
+    "TG: runner spawn":    {"main": [[{"node": "Log approval sent",  "type": "main", "index": 0}]]},
+    "TG: n8n restore":     {"main": [[{"node": "Log approval sent",  "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "tags": [{"name": "infra"}, {"name": "self-healing"}, {"name": "P2.5"}]
+}
