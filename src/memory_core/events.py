@@ -2,7 +2,8 @@
 
 Separate from db.py (Oracle ADB) intentionally:
   db.py    → Oracle ADB 23ai  (vector memory store)
-  events.py → Neon PostgreSQL (infra event log, loop state, meta-eval)
+  events.py → Neon PostgreSQL (infra event log, loop state, meta-eval,
+               and shared agent memory events)
 
 Env vars required:
   NEON_EVENT_DSN   postgresql://user:pass@host/dbname?sslmode=require
@@ -17,6 +18,9 @@ Usage:
       remediation_taken="runner-cleanup.sh",
       outcome="disk_pct reduced to 74",
   )
+
+For agent memory, use MEM_* events (see EventType) with context including
+at minimum: agent_id, workspace, surface, operation_id, payload_kind.
 """
 from __future__ import annotations
 
@@ -39,48 +43,60 @@ except ImportError as exc:
 # Event vocabulary
 # ---------------------------------------------------------------------------
 
+
 class EventType(StrEnum):
-    DISK_WARN          = "disk_warn"
-    DISK_CRIT          = "disk_crit"
-    DISK_CLEANUP_OK    = "disk_cleanup_ok"
-    DISK_CLEANUP_FAIL  = "disk_cleanup_fail"
-    JOB_START          = "job_start"
-    JOB_FAIL           = "job_fail"
-    JOB_FAIL_STREAK    = "job_fail_streak"
-    RUNNER_RESTART     = "runner_restart"
-    RUNNER_DOWN_ALL    = "runner_down_all"
-    RUNNER_SPAWN       = "runner_spawn"
-    N8N_FLOW_ERROR     = "n8n_flow_error"
-    N8N_ALL_FAIL       = "n8n_all_fail"
+    # Infra / loop / platform events
+    DISK_WARN = "disk_warn"
+    DISK_CRIT = "disk_crit"
+    DISK_CLEANUP_OK = "disk_cleanup_ok"
+    DISK_CLEANUP_FAIL = "disk_cleanup_fail"
+    JOB_START = "job_start"
+    JOB_FAIL = "job_fail"
+    JOB_FAIL_STREAK = "job_fail_streak"
+    RUNNER_RESTART = "runner_restart"
+    RUNNER_DOWN_ALL = "runner_down_all"
+    RUNNER_SPAWN = "runner_spawn"
+    N8N_FLOW_ERROR = "n8n_flow_error"
+    N8N_ALL_FAIL = "n8n_all_fail"
     N8N_RESTORE_DRYRUN = "n8n_restore_dryrun"
-    N8N_SUSPEND        = "n8n_suspend"
-    N8N_RESUME         = "n8n_resume"
-    WEBHOOK_BLOCKED    = "webhook_blocked"
-    WEBHOOK_SPAM       = "webhook_spam"
-    SECRET_ROTATED     = "secret_rotated"
-    CF_TUNNEL_DOWN     = "cf_tunnel_down"
-    CF_TUNNEL_UP       = "cf_tunnel_up"
-    CF_POLICY_DRIFT    = "cf_policy_drift"
-    HA_HEALTH_FAIL     = "ha_health_fail"
-    HA_HEALTH_OK       = "ha_health_ok"
+    N8N_SUSPEND = "n8n_suspend"
+    N8N_RESUME = "n8n_resume"
+    WEBHOOK_BLOCKED = "webhook_blocked"
+    WEBHOOK_SPAM = "webhook_spam"
+    SECRET_ROTATED = "secret_rotated"
+    CF_TUNNEL_DOWN = "cf_tunnel_down"
+    CF_TUNNEL_UP = "cf_tunnel_up"
+    CF_POLICY_DRIFT = "cf_policy_drift"
+    HA_HEALTH_FAIL = "ha_health_fail"
+    HA_HEALTH_OK = "ha_health_ok"
     ROLLBACK_TRIGGERED = "rollback_triggered"
-    META_EVAL_RUN      = "meta_eval_run"
+    META_EVAL_RUN = "meta_eval_run"
     META_EVAL_THRESHOLD = "meta_eval_threshold_change"
-    LOOP_START         = "loop_start"
-    LOOP_STOP          = "loop_stop"
-    HUMAN_OVERRIDE     = "human_override"
+    LOOP_START = "loop_start"
+    LOOP_STOP = "loop_stop"
+    HUMAN_OVERRIDE = "human_override"
+
+    # Shared agent memory events (event-sourced bus)
+    MEM_QUERY = "mem_query"  # agent read: query-before-action
+    MEM_INGEST = "mem_ingest"  # agent write: ingest-after-action
+    MEM_NO_FALLBACK = "mem_no_fallback"  # hard failure, no fallback path
+    MEM_FALLBACK_USED = "mem_fallback_used"  # primary failed, fallback used
+    MEM_CONSISTENCY_WARN = "mem_consistency_warn"  # projection vs source drift
+    MEM_REPLAY_START = "mem_replay_start"  # projection rebuild/replay start
+    MEM_REPLAY_DONE = "mem_replay_done"  # projection rebuild/replay finished
 
 
 class Severity(StrEnum):
-    INFO     = "info"
-    WARN     = "warn"
-    ERROR    = "error"
+    INFO = "info"
+    WARN = "warn"
+    ERROR = "error"
     CRITICAL = "critical"
 
 
 # ---------------------------------------------------------------------------
 # Connection pool (lazy init, module-level singleton)
 # ---------------------------------------------------------------------------
+
 
 _pool: pg_pool.SimpleConnectionPool | None = None
 
@@ -100,6 +116,7 @@ def _get_pool() -> pg_pool.SimpleConnectionPool:
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def log_event(
     *,
     source: str,
@@ -109,7 +126,17 @@ def log_event(
     remediation_taken: str | None = None,
     outcome: str | None = None,
 ) -> int:
-    """Insert one row into public.event_log on Neon. Returns the row id."""
+    """Insert one row into public.event_log on Neon. Returns the row id.
+
+    For MEM_* events, context SHOULD include:
+      - agent_id: str
+      - workspace: str (or tenant)
+      - surface: str (e.g. compose/run/finalize/reshare)
+      - operation_id: str (trace id)
+      - payload_kind: str (conversation/plan/code_diff/metric/...)
+    This function does not enforce the shape but the contract is documented
+    here so all agents share the same vocabulary.
+    """
     pool = _get_pool()
     conn = pool.getconn()
     try:
@@ -172,8 +199,10 @@ def query_events(
             cur.execute(sql, binds)
             cols = [d[0] for d in cur.description]
             return [
-                {k: (v.isoformat() if hasattr(v, "isoformat") else v)
-                 for k, v in zip(cols, row)}
+                {
+                    k: (v.isoformat() if hasattr(v, "isoformat") else v)
+                    for k, v in zip(cols, row)
+                }
                 for row in cur.fetchall()
             ]
     finally:
