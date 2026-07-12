@@ -246,6 +246,123 @@ async def _http_readyz(request: Any) -> Any:
     return JSONResponse(body, status_code=status)
 
 
+# ---------------------------------------------------------------------------
+# /v1/events — Event-sourced memory bus endpoint
+# ---------------------------------------------------------------------------
+# POST /v1/events  : log_event() -> Neon event_log INSERT
+# GET  /v1/events  : query_events() with optional filters
+#
+# FAIL-SOFT INVARIANT: This endpoint is the event bus surface.
+# A failure here MUST return 503 and NEVER propagate to the caller's
+# memory operation. Callers (Agent-Z, OpenClaw, n8n) are expected to
+# fire-and-forget with a try/except so memory calls are never blocked.
+#
+# Schema contract: see docs/event-sourced-memory-bus/event-schema.md
+# Neon DDL:        see docs/event-sourced-memory-bus/projections.sql
+# ---------------------------------------------------------------------------
+
+async def _http_events_post(request: Any) -> Any:
+    """REST: POST /v1/events
+
+    Body (JSON):
+      source          str   required   e.g. "agent-z:compose", "openclaw:sync"
+      event_type      str   required   see EventType enum in events.py
+      severity        str   required   info | warn | error | critical
+      context         obj   optional   agent_id, workspace, surface, ...
+      remediation_taken str optional
+      outcome         str   optional
+
+    Returns: {"id": <int>, "ok": true}
+
+    MEM_* events SHOULD include in context:
+      agent_id, workspace, surface, operation_id, payload_kind
+    """
+    from starlette.concurrency import run_in_threadpool
+    from starlette.responses import JSONResponse
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+
+    source = (data or {}).get("source")
+    event_type = (data or {}).get("event_type")
+    severity = (data or {}).get("severity")
+
+    if not source or not event_type or not severity:
+        return JSONResponse(
+            {"error": "source, event_type and severity are required"},
+            status_code=400,
+        )
+
+    def _write() -> int:
+        from .events import log_event
+        return log_event(
+            source=source,
+            event_type=event_type,
+            severity=severity,
+            context=data.get("context"),
+            remediation_taken=data.get("remediation_taken"),
+            outcome=data.get("outcome"),
+        )
+
+    try:
+        row_id = await run_in_threadpool(_write)
+    except Exception as exc:
+        # FAIL-SOFT: never crash callers; return 503 so monitoring sees it
+        return JSONResponse(
+            {"error": "event_log write failed", "detail": str(exc)},
+            status_code=503,
+        )
+
+    return JSONResponse({"id": row_id, "ok": True})
+
+
+async def _http_events_get(request: Any) -> Any:
+    """REST: GET /v1/events?event_type=mem_ingest&severity=error&source=agent-z&since_hours=24&limit=50"""
+    from starlette.concurrency import run_in_threadpool
+    from starlette.responses import JSONResponse
+
+    params = dict(request.query_params)
+    event_types_raw = params.get("event_type")
+    event_types = [t.strip() for t in event_types_raw.split(",")] if event_types_raw else None
+    severity = params.get("severity")
+    source = params.get("source")
+    try:
+        since_hours = int(params.get("since_hours", 24))
+        limit = max(1, min(int(params.get("limit", 100)), 500))
+    except (TypeError, ValueError):
+        since_hours, limit = 24, 100
+
+    def _read() -> list:
+        from .events import query_events
+        return query_events(
+            event_types=event_types,
+            severity=severity,
+            source=source,
+            since_hours=since_hours,
+            limit=limit,
+        )
+
+    try:
+        rows = await run_in_threadpool(_read)
+    except Exception as exc:
+        return JSONResponse(
+            {"error": "event_log read failed", "detail": str(exc)},
+            status_code=503,
+        )
+
+    safe = json.loads(json.dumps(rows, default=str))
+    return JSONResponse({"count": len(safe), "events": safe})
+
+
+async def _http_events_dispatch(request: Any) -> Any:
+    """Route /v1/events to GET or POST handler."""
+    if request.method == "POST":
+        return await _http_events_post(request)
+    return await _http_events_get(request)
+
+
 def _build_http_app() -> Any:
     """MCP streamable-http app + REST automation routes. Appending to the app's
     own router preserves the MCP session-manager lifespan (no nested Mount)."""
@@ -256,6 +373,8 @@ def _build_http_app() -> Any:
     app.router.routes.append(Route("/query", _http_query, methods=["GET", "POST"]))
     app.router.routes.append(Route("/readyz", _http_readyz, methods=["GET"]))
     app.router.routes.append(Route("/catalog/upsert", _http_catalog_upsert, methods=["POST"]))
+    # Event-sourced memory bus
+    app.router.routes.append(Route("/v1/events", _http_events_dispatch, methods=["GET", "POST"]))
     return app
 
 
