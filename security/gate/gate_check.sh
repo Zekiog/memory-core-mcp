@@ -11,7 +11,7 @@
 #
 # Env overrides:
 #   TARGET_HOST  ssh alias (default z-agentic-vm-02)
-#   TARGET_PUB_IP public IP for ext probe (default 79.76.57.223)
+#   TARGET_PUB_IP public IP for ext probe — REQUIRED, no default (security hardening)
 #   PORTS        space-separated TCP list (default "5678 6379 5432")
 #   STRICT_P2_1  "1" -> empty DOCKER-USER = RED (default 0 -> WARN)
 #   PROBE_TOOL   nmap|nc|auto (default auto, prefer nmap)
@@ -28,7 +28,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/lib/render.sh"
 
 TARGET_HOST="${TARGET_HOST:-z-agentic-vm-02}"
-TARGET_PUB_IP="${TARGET_PUB_IP:-79.76.57.223}"
+# Security hardening: no IP default — caller must supply TARGET_PUB_IP explicitly.
+# This prevents the VM's public IP from being embedded in source control.
+TARGET_PUB_IP="${TARGET_PUB_IP:?TARGET_PUB_IP env var must be set (e.g. export TARGET_PUB_IP=x.x.x.x)}"
 PORTS="${PORTS:-5678 6379 5432}"
 STRICT_P2_1="${STRICT_P2_1:-0}"
 PROBE_TOOL="${PROBE_TOOL:-auto}"
