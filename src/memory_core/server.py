@@ -14,6 +14,7 @@ from mcp.server.fastmcp import FastMCP
 
 from . import db
 from .config import Config
+from .shaping import shape_results
 
 cfg = Config.load()
 db.init_pool(cfg)
@@ -52,10 +53,23 @@ def memory_search(
     scope: str | None = None,
     kind: str | None = None,
     limit: int = 8,
+    max_tokens: int | None = None,
+    chunk_size: int | None = None,
+    fields: list[str] | None = None,
 ) -> list[dict]:
-    """Semantic search across memories."""
-    return db.search(cfg, query=query, scope=scope, kind=kind,
-                      limit=max(1, min(limit, 50)))
+    """Semantic search across memories (cosine over in-DB embeddings).
+
+    Falls back to keyword match if the embedding model is not yet loaded.
+    Optional shaping (ZMEM-Q1): max_tokens caps the total body budget
+    (overflowing record is tail-truncated with truncated=true), chunk_size
+    splits bodies into paragraph-aligned chunks with source#cN references,
+    fields projects each record to the given keys. Omit all three for the
+    unchanged legacy response.
+    """
+    rows = db.search(cfg, query=query, scope=scope, kind=kind,
+                     limit=max(1, min(limit, 50)))
+    return shape_results(rows, max_tokens=max_tokens,
+                         chunk_size=chunk_size, fields=fields)
 
 
 @mcp.tool()
@@ -189,10 +203,32 @@ async def _http_query(request: Any) -> Any:
         limit = max(1, min(int(data.get("limit", 10)), 50))
     except (TypeError, ValueError):
         limit = 10
+
+    def _opt_int(name: str) -> int | None:
+        try:
+            value = int(data[name])
+        except (KeyError, TypeError, ValueError):
+            return None
+        return value if value > 0 else None
+
+    max_tokens = _opt_int("max_tokens")
+    chunk_size = _opt_int("chunk_size")
+    fields_raw = data.get("fields")
+    if isinstance(fields_raw, str):
+        fields = [f.strip() for f in fields_raw.split(",") if f.strip()] or None
+    elif isinstance(fields_raw, list):
+        fields = [str(f) for f in fields_raw] or None
+    else:
+        fields = None
+
     def _read() -> list:
         if query:
-            return db.search(cfg, query=query, scope=scope, kind=kind, limit=limit)
-        return db.recent(cfg, scope=scope, kind=kind, limit=limit)
+            rows = db.search(cfg, query=query, scope=scope, kind=kind, limit=limit)
+        else:
+            rows = db.recent(cfg, scope=scope, kind=kind, limit=limit)
+        return shape_results(rows, max_tokens=max_tokens,
+                             chunk_size=chunk_size, fields=fields)
+
     rows = await run_in_threadpool(_read)
     safe = json.loads(json.dumps(rows, default=str))
     return JSONResponse({"count": len(safe), "results": safe})
