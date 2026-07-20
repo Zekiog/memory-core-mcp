@@ -1,0 +1,6 @@
+.venv/
+.env
+*.zip
+__pycache__/
+*.egg-info/
+db/wallet/
