@@ -40,6 +40,51 @@ off the compute boxes.
 | `memory_recent` | Most-recently updated memories (filterable) |
 | `memory_link` | Create a typed edge between two memories (idempotent) |
 | `memory_stats` | Counts by scope/kind; whether semantic search is active |
+| `search_memory` | Hybrid (vector + alias) search across the typed entity catalog |
+| `resolve_metric` | Catalog lookup of a metric descriptor for an entity (no DB hit) |
+| `add_entity` | Persist a typed entity + optional aliases + auto-embedding |
+| `add_relationship` | Create a typed weighted edge between two entities (idempotent) |
+| `query_graph` | Traverse the typed entity graph (1..3 hops, optional relation filter) |
+
+## Semantic Layer (ZIONOS L2)
+
+Implements [ZIONOS Spec 1](https://github.com/Zekiog/zion-os/blob/main/docs/semantic-layer.md):
+10 typed entities (`Customer`, `TradingStrategy`, `LocalizationProject`,
+`Agent`, `Skill`, `Permission`, `MarketData`, `Connector`, `DAOMember`,
+`AuditEvent`), each with attribute schemas, metric catalogs, and a business
+predicate resolver that translates natural-language filters into Oracle
+`JSON_VALUE` SQL.
+
+Backing tables (applied manually by DBA, like the other Oracle DDL):
+
+```bash
+# Apply once against zmemory-adb
+sql admin/zmemory-adb @db/05_semantic_layer.sql
+```
+
+Quick example:
+
+```python
+kg = KnowledgeGraph(cfg)
+acme = kg.add_entity(
+    scope="acme-corp",
+    entity_type="Customer",
+    display="Acme Corp",
+    attributes={"segment": "enterprise"},
+    aliases=["ACME"],
+)
+strat = kg.add_entity(
+    scope="acme-corp",
+    entity_type="TradingStrategy",
+    display="BTC-Momentum-v3",
+    attributes={"market": "crypto"},
+)
+kg.add_relationship(scope="acme-corp", from_id=acme, relation="owns",
+                    to_id=strat, weight=0.9)
+print(kg.neighbors(scope="acme-corp", entity_id=acme, max_hops=2))
+```
+
+Full spec: [`docs/semantic-layer.md`](docs/semantic-layer.md).
 
 ## Setup
 

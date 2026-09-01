@@ -101,6 +101,123 @@ def memory_stats() -> dict:
     return db.stats(cfg)
 
 
+# ---------------------------------------------------------------------------
+# ZIONOS L2 — Semantic Layer (Spec 1)
+#   - https://github.com/Zekiog/zion-os/blob/main/docs/semantic-layer.md
+#   - Implemented in src/memory_core/semantic.py (CATALOG + SemanticLayer
+#     + KnowledgeGraph over the entities / entity_relationships /
+#     entity_aliases / entity_embeddings tables).
+# ---------------------------------------------------------------------------
+
+from .semantic import CATALOG as _SEMANTIC_CATALOG  # noqa: E402
+from .semantic import KnowledgeGraph, SemanticLayer  # noqa: E402
+
+_semantic = SemanticLayer()
+_semantic.register_catalog(_SEMANTIC_CATALOG)
+
+
+def _kg() -> KnowledgeGraph:
+    """Per-call handle so config changes propagate without restart."""
+    return KnowledgeGraph(cfg)
+
+
+@mcp.tool()
+def search_memory(
+    query: str,
+    entity_type: str | None = None,
+    scope: str | None = None,
+    limit: int = 10,
+) -> list[dict]:
+    """Semantic search over the typed entity catalog.
+
+    Returns hybrid (vector + alias) matches. Uses the existing in-DB
+    `VECTOR_EMBEDDING(...)` model if available, otherwise the client-side
+    fastembed fallback, otherwise keyword LIKE.
+
+    Spec: https://github.com/Zekiog/zion-os/blob/main/docs/semantic-layer.md#mcp-tools
+    """
+    return _kg().search(
+        scope=scope or cfg.default_scope,
+        query=query,
+        entity_type=entity_type,
+        limit=limit,
+    )
+
+
+@mcp.tool()
+def resolve_metric(entity: str, metric: str) -> dict | None:
+    """Return the metric descriptor for an entity (catalog lookup, no DB hit)."""
+    return _semantic.resolve(entity, metric)
+
+
+@mcp.tool()
+def add_entity(
+    entity_type: str,
+    attributes: dict,
+    display: str | None = None,
+    scope: str | None = None,
+    aliases: list[str] | None = None,
+    locale: str = "en",
+) -> dict:
+    """Persist a new typed entity + optional aliases + auto-embedding.
+
+    Validates `entity_type` against the catalog; unknown types raise a clean
+    MCP error so LLM clients can recover.
+    """
+    if entity_type not in _semantic:
+        raise ValueError(
+            f"unknown entity_type {entity_type!r}; "
+            f"registered: {sorted(_semantic._entities.keys())}"
+        )
+    ent_id = _kg().add_entity(
+        scope=scope or cfg.default_scope,
+        entity_type=entity_type,
+        attributes=attributes,
+        display=display,
+        aliases=aliases,
+        locale=locale,
+    )
+    return {"id": ent_id, "entity_type": entity_type, "scope": scope or cfg.default_scope}
+
+
+@mcp.tool()
+def add_relationship(
+    from_id: str,
+    to_id: str,
+    relation: str,
+    weight: float = 1.0,
+    scope: str | None = None,
+) -> dict:
+    """Create a typed weighted edge between two existing entities (idempotent)."""
+    rid = _kg().add_relationship(
+        scope=scope or cfg.default_scope,
+        from_id=from_id, to_id=to_id, relation=relation, weight=weight,
+    )
+    return {"id": rid, "from_id": from_id, "to_id": to_id, "relation": relation}
+
+
+@mcp.tool()
+def query_graph(
+    entity_id: str,
+    relation: str | None = None,
+    max_hops: int = 1,
+    limit: int = 50,
+    scope: str | None = None,
+) -> list[dict]:
+    """Graph traversal over typed entities (1..3 hops, undirected optional).
+
+    Pass `relation` to filter edge types (e.g. "owns", "manages"). Empty
+    `relation` matches any edge.
+    """
+    return _kg().neighbors(
+        scope=scope or cfg.default_scope,
+        entity_id=entity_id,
+        relation=relation,
+        max_hops=max_hops,
+        limit=limit,
+    )
+
+
 class _BearerASGI:
     """Pure-ASGI bearer-token gate. SSE-safe."""
 
