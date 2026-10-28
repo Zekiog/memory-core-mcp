@@ -11,6 +11,8 @@ Spec: https://github.com/Zekiog/zion-os/blob/main/docs/semantic-layer.md
 from __future__ import annotations
 
 import json
+import math
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -181,7 +183,17 @@ class KnowledgeGraph:
         reflects both the label and the full attribute bag.
         """
         attrs_json = json.dumps(attributes, sort_keys=True, default=str)
-        display = display or attributes.get("name") or entity_type
+        # The display label is part of the UNIQUE (scope, entity_type, display)
+        # key, so it must be stable and caller-supplied. Falling back to the
+        # entity type would make the second entity of a type collide with the
+        # first one.
+        display = display or attributes.get("name") or attributes.get("id")
+        if not display:
+            raise ValueError(
+                "display is required: pass display=... or include a "
+                "'name' or 'id' attribute"
+            )
+        display = str(display)
         with db.conn() as c, c.cursor() as cur:
             out_id = cur.var(oracledb.STRING)
             mode = db.embed_mode(self._cfg)
@@ -252,15 +264,24 @@ class KnowledgeGraph:
         to_id: str,
         weight: float = 1.0,
     ) -> str:
-        """Insert a typed weighted edge. Idempotent on (from_id, to_id, relation)."""
+        """Insert a typed weighted edge. Idempotent on (from_id, to_id, relation).
+
+        Both endpoints are resolved inside `scope`, so an edge can never link
+        entities of two different tenants, and the match key includes the
+        scope so an update never overwrites an edge owned by another scope.
+        """
         with db.conn() as c, c.cursor() as cur:
             out_id = cur.var(oracledb.STRING)
             cur.execute(
                 """
                 MERGE INTO entity_relationships r
-                USING (SELECT :s AS scope, :f AS from_id, :rel AS relation,
-                              :t AS to_id, :w AS weight FROM dual) x
-                ON (r.from_id = x.from_id AND r.to_id = x.to_id AND r.relation = x.relation)
+                USING (SELECT f.scope AS scope, f.id AS from_id, :rel AS relation,
+                              t.id AS to_id, :w AS weight
+                       FROM entities f, entities t
+                       WHERE f.id = :f AND f.scope = :s
+                         AND t.id = :t AND t.scope = :s) x
+                ON (r.from_id = x.from_id AND r.to_id = x.to_id
+                    AND r.relation = x.relation AND r.scope = x.scope)
                 WHEN NOT MATCHED THEN
                   INSERT (scope, from_id, relation, to_id, weight)
                   VALUES (x.scope, x.from_id, x.relation, x.to_id, x.weight)
@@ -271,7 +292,13 @@ class KnowledgeGraph:
                 s=scope, f=from_id, rel=relation, t=to_id, w=weight, rid=out_id,
             )
             c.commit()
-            return out_id.getvalue()[0]
+            row = out_id.getvalue()
+            if not row:
+                raise ValueError(
+                    "from_id and to_id must both exist in scope "
+                    f"{scope!r}"
+                )
+            return row[0]
 
     # ---- reads --------------------------------------------------------------
 
@@ -291,7 +318,12 @@ class KnowledgeGraph:
         """
         if not 1 <= max_hops <= 3:
             raise ValueError("max_hops must be in 1..3")
-        hops_filter = "" if relation is None else "AND relation = :rel"
+        hops_filter = "" if relation is None else "AND r.relation = :rel"
+        binds: dict[str, Any] = {
+            "root": entity_id, "scope": scope, "hops": max_hops, "lim": limit,
+        }
+        if relation is not None:
+            binds["rel"] = relation
         with db.conn() as c, c.cursor() as cur:
             cur.execute(
                 f"""
@@ -301,19 +333,19 @@ class KnowledgeGraph:
                   UNION ALL
                   SELECT r.to_id, g.depth + 1, r.relation
                   FROM graph g
-                  JOIN entity_relationships r ON r.from_id = g.node_id
+                  JOIN entity_relationships r
+                    ON r.from_id = g.node_id AND r.scope = :scope
                   WHERE g.depth < :hops {hops_filter}
                 )
                 SELECT DISTINCT e.id, e.entity_type, e.display, e.attributes,
                        g.depth, g.via_relation
                 FROM graph g
-                JOIN entities e ON e.id = g.node_id
+                JOIN entities e ON e.id = g.node_id AND e.scope = :scope
                 WHERE g.depth > 0
                 ORDER BY g.depth, e.display
                 FETCH FIRST :lim ROWS ONLY
                 """,
-                root=entity_id, scope=scope, hops=max_hops,
-                rel=relation, lim=limit,
+                **binds,
             )
             return [_entity_row(r) for r in cur.fetchall()]
 
@@ -404,7 +436,8 @@ class KnowledgeGraph:
                     FROM entities e
                     WHERE e.scope = :scope
                       AND (LOWER(e.display) LIKE :q
-                           OR LOWER(e.attributes) LIKE :q){where_extra}
+                           OR LOWER(JSON_SERIALIZE(e.attributes RETURNING CLOB))
+                              LIKE :q){where_extra}
                     ORDER BY e.updated_at DESC
                     FETCH FIRST :lim ROWS ONLY
                     """,
@@ -449,6 +482,9 @@ import oracledb  # noqa: E402
 from . import embedder  # noqa: E402
 
 
+_PREDICATE_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
 def _resolver_for(entity: str) -> PredicateResolver:
     """Build a generic resolver that translates a flat equality predicate."""
     def _resolve(predicate: dict[str, Any]) -> str:
@@ -456,9 +492,21 @@ def _resolver_for(entity: str) -> PredicateResolver:
             return ""
         parts = []
         for k, v in predicate.items():
-            if isinstance(v, str):
+            # The key is interpolated into a JSON path, so it has to be a
+            # plain attribute name — anything else could break out of the
+            # path expression.
+            if not _PREDICATE_KEY_RE.fullmatch(str(k)):
+                raise ValueError(f"invalid attribute name in predicate: {k!r}")
+            if isinstance(v, bool):
+                parts.append(
+                    f"JSON_VALUE(attributes, '$.{k}') = "
+                    f"'{'true' if v else 'false'}'"
+                )
+            elif isinstance(v, str):
                 parts.append(f"JSON_VALUE(attributes, '$.{k}') = '{v.replace(chr(39), chr(39)*2)}'")
             elif isinstance(v, (int, float)):
+                if isinstance(v, float) and not math.isfinite(v):
+                    raise ValueError(f"non-finite number in predicate: {v!r}")
                 parts.append(f"CAST(JSON_VALUE(attributes, '$.{k}') AS NUMBER) = {v}")
             else:
                 parts.append(

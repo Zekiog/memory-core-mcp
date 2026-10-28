@@ -131,3 +131,44 @@ def test_knowledge_graph_rejects_invalid_max_hops():
         kg.neighbors(scope="x", entity_id="y", max_hops=0)
     with pytest.raises(ValueError):
         kg.neighbors(scope="x", entity_id="y", max_hops=4)
+
+
+def test_add_entity_requires_a_display_label():
+    """Without a label the UNIQUE (scope, entity_type, display) key would
+    collide with the first entity of the same type, so the write is refused."""
+    from memory_core.config import Config
+    cfg = Config(
+        dsn="", user="", password="", wallet_dir="", wallet_password=None,
+        embed_model="ZMEM_EMBED", default_scope="default",
+        vault_dir=None, vault_mirror=False,
+    )
+    kg = KnowledgeGraph(cfg)
+    with pytest.raises(ValueError):
+        kg.add_entity(scope="x", entity_type="Agent", attributes={"role": "planner"})
+
+
+# ---------------------------------------------------------------------------
+# Predicate resolver (SQL fragment generation)
+# ---------------------------------------------------------------------------
+
+def test_predicate_resolver_rejects_unsafe_attribute_names():
+    resolver = CATALOG["Customer"].resolver
+    assert resolver is not None
+    with pytest.raises(ValueError):
+        resolver({"a') OR '1'='1": "x"})
+
+
+def test_predicate_resolver_renders_booleans_and_numbers():
+    resolver = CATALOG["Customer"].resolver
+    assert resolver is not None
+    fragment = resolver({"segment": "enterprise", "churn_risk": True, "ltv": 12.5})
+    assert "JSON_VALUE(attributes, '$.segment') = 'enterprise'" in fragment
+    assert "JSON_VALUE(attributes, '$.churn_risk') = 'true'" in fragment
+    assert "CAST(JSON_VALUE(attributes, '$.ltv') AS NUMBER) = 12.5" in fragment
+
+
+def test_predicate_resolver_rejects_non_finite_numbers():
+    resolver = CATALOG["Customer"].resolver
+    assert resolver is not None
+    with pytest.raises(ValueError):
+        resolver({"ltv": float("nan")})

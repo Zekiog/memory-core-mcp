@@ -7,6 +7,17 @@
 --                entity_embeddings (VECTOR(384, FLOAT32)).
 -- Tenant isolation: scope (matches existing memories / memory_links).
 -- Vector dim matches memories.embedding and the ZMEM_EMBED ONNX model.
+--
+-- This migration creates tables only when they are missing. On an installation
+-- that already has them, re-running it does not add the newer constraints.
+-- The scope-bound foreign keys have to be applied by hand there:
+--   ALTER TABLE entities ADD CONSTRAINT entities_scope_id_uq UNIQUE (scope, id);
+--   ALTER TABLE entity_relationships DROP CONSTRAINT entity_rels_from;
+--   ALTER TABLE entity_relationships ADD CONSTRAINT entity_rels_from
+--     FOREIGN KEY (scope, from_id) REFERENCES entities(scope, id) ON DELETE CASCADE;
+--   ALTER TABLE entity_relationships DROP CONSTRAINT entity_rels_to;
+--   ALTER TABLE entity_relationships ADD CONSTRAINT entity_rels_to
+--     FOREIGN KEY (scope, to_id) REFERENCES entities(scope, id) ON DELETE CASCADE;
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -26,15 +37,31 @@ BEGIN
       display     VARCHAR2(512),                                  -- canonical label
       created_at  TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
       updated_at  TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
-      CONSTRAINT entities_scope_type_uq UNIQUE (scope, entity_type, display)
+      CONSTRAINT entities_scope_type_uq UNIQUE (scope, entity_type, display),
+      CONSTRAINT entities_scope_id_uq    UNIQUE (scope, id)
     )
   ]';
 EXCEPTION WHEN e_table_exists THEN NULL;
 END;
 /
 
-CREATE INDEX entities_scope_type_idx     ON entities (scope, entity_type);
-CREATE INDEX entities_scope_updated_idx  ON entities (scope, updated_at DESC);
+DECLARE
+  e_idx_exists EXCEPTION;
+  PRAGMA EXCEPTION_INIT(e_idx_exists, -955);
+BEGIN
+  EXECUTE IMMEDIATE 'CREATE INDEX entities_scope_type_idx ON entities (scope, entity_type)';
+EXCEPTION WHEN e_idx_exists THEN NULL;
+END;
+/
+
+DECLARE
+  e_idx_exists EXCEPTION;
+  PRAGMA EXCEPTION_INIT(e_idx_exists, -955);
+BEGIN
+  EXECUTE IMMEDIATE 'CREATE INDEX entities_scope_updated_idx ON entities (scope, updated_at DESC)';
+EXCEPTION WHEN e_idx_exists THEN NULL;
+END;
+/
 
 COMMENT ON TABLE entities IS
   'Semantic catalog rows. attributes conforms to the schema registered in memory_core.semantic.CATALOG.';
@@ -56,17 +83,32 @@ BEGIN
       to_id      VARCHAR2(36)                       NOT NULL,
       weight     BINARY_DOUBLE  DEFAULT 1.0        NOT NULL,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
-      CONSTRAINT entity_rels_pk  PRIMARY KEY (from_id, to_id, relation),
-      CONSTRAINT entity_rels_from FOREIGN KEY (from_id) REFERENCES entities(id) ON DELETE CASCADE,
-      CONSTRAINT entity_rels_to   FOREIGN KEY (to_id)   REFERENCES entities(id) ON DELETE CASCADE
+      CONSTRAINT entity_rels_uq  UNIQUE (from_id, to_id, relation),
+      CONSTRAINT entity_rels_from FOREIGN KEY (scope, from_id) REFERENCES entities(scope, id) ON DELETE CASCADE,
+      CONSTRAINT entity_rels_to   FOREIGN KEY (scope, to_id)   REFERENCES entities(scope, id) ON DELETE CASCADE
     )
   ]';
 EXCEPTION WHEN e_table_exists THEN NULL;
 END;
 /
 
-CREATE INDEX entity_rels_scope_idx       ON entity_relationships (scope, from_id);
-CREATE INDEX entity_rels_relation_idx    ON entity_relationships (relation, from_id);
+DECLARE
+  e_idx_exists EXCEPTION;
+  PRAGMA EXCEPTION_INIT(e_idx_exists, -955);
+BEGIN
+  EXECUTE IMMEDIATE 'CREATE INDEX entity_rels_scope_idx ON entity_relationships (scope, from_id)';
+EXCEPTION WHEN e_idx_exists THEN NULL;
+END;
+/
+
+DECLARE
+  e_idx_exists EXCEPTION;
+  PRAGMA EXCEPTION_INIT(e_idx_exists, -955);
+BEGIN
+  EXECUTE IMMEDIATE 'CREATE INDEX entity_rels_relation_idx ON entity_relationships (relation, from_id)';
+EXCEPTION WHEN e_idx_exists THEN NULL;
+END;
+/
 
 COMMENT ON TABLE entity_relationships IS
   'Directed weighted edges. Weight is the resolver confidence (1.0 = asserted by ZPM governance loop).';
@@ -96,8 +138,23 @@ EXCEPTION WHEN e_table_exists THEN NULL;
 END;
 /
 
-CREATE INDEX entity_aliases_lookup_idx ON entity_aliases (scope, locale, alias);
-CREATE INDEX entity_aliases_canon_idx  ON entity_aliases (canonical_id);
+DECLARE
+  e_idx_exists EXCEPTION;
+  PRAGMA EXCEPTION_INIT(e_idx_exists, -955);
+BEGIN
+  EXECUTE IMMEDIATE 'CREATE INDEX entity_aliases_lookup_idx ON entity_aliases (scope, locale, alias)';
+EXCEPTION WHEN e_idx_exists THEN NULL;
+END;
+/
+
+DECLARE
+  e_idx_exists EXCEPTION;
+  PRAGMA EXCEPTION_INIT(e_idx_exists, -955);
+BEGIN
+  EXECUTE IMMEDIATE 'CREATE INDEX entity_aliases_canon_idx ON entity_aliases (canonical_id)';
+EXCEPTION WHEN e_idx_exists THEN NULL;
+END;
+/
 
 COMMENT ON TABLE entity_aliases IS
   'Term resolution for resolve_term. Powers chainlingo + glossaryGuard terminology graph.';
@@ -124,9 +181,11 @@ END;
 /
 
 -- IVF neighbor-partitions index, matching memories_vec_idx style. Safe on free tier.
+-- ORA-00955 (-955): the index already exists — re-running the migration is a no-op.
+-- ORA-20008: the free tier refuses this index type — skip it, the table is still usable.
 DECLARE
   e_idx_exists EXCEPTION;
-  PRAGMA EXCEPTION_INIT(e_idx_exists, -20008);
+  PRAGMA EXCEPTION_INIT(e_idx_exists, -955);
 BEGIN
   EXECUTE IMMEDIATE q'[
     CREATE VECTOR INDEX entity_embeddings_vec_idx
@@ -135,7 +194,14 @@ BEGIN
       DISTANCE COSINE
       WITH TARGET ACCURACY 90
   ]';
-EXCEPTION WHEN e_idx_exists THEN NULL;
+EXCEPTION
+  WHEN e_idx_exists THEN NULL;
+  WHEN OTHERS THEN
+    IF SQLCODE = -20008 THEN
+      NULL;
+    ELSE
+      RAISE;
+    END IF;
 END;
 /
 

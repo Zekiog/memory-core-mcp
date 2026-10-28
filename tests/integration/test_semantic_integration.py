@@ -125,11 +125,14 @@ def test_add_entity_unknown_type_is_rejected_at_tool_layer():
     see a clean error rather than an opaque Oracle failure."""
     from memory_core.server import add_entity as add_entity_tool
     from memory_core import server as srv
+    # mcp 1.x returns the plain function from @mcp.tool(), while the 2.x
+    # FastMCP returns a FunctionTool that wraps it — unwrap both.
+    add_entity_fn = getattr(add_entity_tool, "fn", add_entity_tool)
     original = dict(srv._semantic._entities)
     srv._semantic._entities.pop("AuditEvent", None)
     try:
         with pytest.raises(ValueError, match="unknown entity_type"):
-            add_entity_tool.fn(
+            add_entity_fn(
                 entity_type="AuditEvent",
                 attributes={"id": "x", "scope": "y"},
             )

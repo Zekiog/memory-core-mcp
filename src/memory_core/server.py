@@ -204,7 +204,7 @@ def query_graph(
     limit: int = 50,
     scope: str | None = None,
 ) -> list[dict]:
-    """Graph traversal over typed entities (1..3 hops, undirected optional).
+    """Graph traversal over typed entities (1..3 hops, outgoing edges only).
 
     Pass `relation` to filter edge types (e.g. "owns", "manages"). Empty
     `relation` matches any edge.
