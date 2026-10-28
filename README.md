@@ -58,8 +58,8 @@ predicate resolver that translates natural-language filters into Oracle
 Backing tables (applied manually by DBA, like the other Oracle DDL):
 
 ```bash
-# Apply once against zmemory-adb, connected as ZMEM
-sql ZMEM@zmemory-adb @db/05_semantic_layer.sql
+# Apply once against zmemory_high (the zmemory-adb database), connected as ZMEM
+sql ZMEM@zmemory_high @db/05_semantic_layer.sql
 ```
 
 Quick example:
